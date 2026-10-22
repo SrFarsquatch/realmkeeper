@@ -90,7 +90,7 @@ func TestHytaleConfigAddsMissingSettingsAndRefusesBrokenFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)
-	for _, want := range []string{`"ServerName": "Old Name"`, `"Port": 5520`, `"Defaults": {`, `"GameMode": "Adventure"`, `"Backup": {"MaxCount": 5}`} {
+	for _, want := range []string{`"ServerName": "Old Name"`, `"Port": 5520`, `"Defaults": {`, `"GameMode": "Adventure"`, `"Backup": {"MaxCount": 5,`, `"FrequencyMinutes": 30`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("config.json lacks %s:\n%s", want, b)
 		}

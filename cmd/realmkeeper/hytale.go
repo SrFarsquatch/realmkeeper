@@ -298,6 +298,20 @@ func patchHytaleConfig(b []byte, s ServerSettings) ([]byte, error) {
 	if out, err = setJSONMemberRaw(out, "Defaults", defaults); err != nil {
 		return nil, err
 	}
+	// The backup frequency goes in the game's own Backup section; a config
+	// without one keeps the game's defaults.
+	backup, err := jsonMember(out, "Backup")
+	if err != nil {
+		return nil, err
+	}
+	if len(backup) > 0 && backup[0] == '{' && s.BackupFrequency > 0 {
+		if backup, err = setHytaleConfigValue(backup, "FrequencyMinutes", s.BackupFrequency); err != nil {
+			return nil, err
+		}
+		if out, err = setJSONMemberRaw(out, "Backup", backup); err != nil {
+			return nil, err
+		}
+	}
 	return patchHytalePatchline(out, s.HytalePatchline)
 }
 
