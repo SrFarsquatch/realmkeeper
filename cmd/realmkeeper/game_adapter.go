@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
@@ -189,12 +188,42 @@ func (HytaleAdapter) PrepareLaunch(app *App, settings ServerSettings) ([]string,
 	if err := app.applyHytaleConfig(settings); err != nil {
 		return nil, fmt.Errorf("could not apply Hytale settings: %w", err)
 	}
-	args := []string{
-		"--bind", fmt.Sprintf("0.0.0.0:%d", settings.Port),
-		"--backup-frequency", strconv.Itoa(settings.BackupFrequency),
+	extra := splitArgs(settings.ExtraArgs)
+	script, _ := os.ReadFile(filepath.Join(pathsFor(app.serverRoot(settings)).Game(), "start.sh"))
+	// Backups are configured in config.json, never on the command line: the
+	// server rejects an option given twice, and start.sh can pass backup
+	// options of its own.
+	var args []string
+	if source := hytaleOptionSource("--bind", string(script), extra); source != "" {
+		if m, _, err := app.serverByID(settings.ID); err == nil {
+			m.appendLog("controller", "Not passing --bind: "+source+" already sets it")
+		}
+	} else {
+		args = append(args, "--bind", fmt.Sprintf("0.0.0.0:%d", settings.Port))
 	}
-	args = append(args, splitArgs(settings.ExtraArgs)...)
-	return args, nil
+	return append(args, extra...), nil
+}
+
+// hytaleOptionSource says where an option the server is already given comes
+// from: start.sh or the extra launch arguments, or "" when neither sets it.
+func hytaleOptionSource(option, script string, extra []string) string {
+	for _, arg := range extra {
+		if arg == option || strings.HasPrefix(arg, option+"=") {
+			return "the extra launch arguments"
+		}
+	}
+	for _, line := range strings.Split(script, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		for _, field := range strings.FieldsFunc(line, func(r rune) bool { return r == ' ' || r == '\t' || r == '"' || r == '\'' }) {
+			if field == option || strings.HasPrefix(field, option+"=") {
+				return "start.sh"
+			}
+		}
+	}
+	return ""
 }
 
 func (HytaleAdapter) BuildProcess(rootDir string, args []string) (ProcessLaunch, error) {
