@@ -336,7 +336,11 @@ func newDockerAPI() *dockerAPI {
 
 func (d *dockerAPI) request(ctx context.Context, method, endpoint string, body any) (*http.Response, error) {
 	var reader io.Reader
-	if body != nil {
+	contentType := "application/json"
+	if stream, ok := body.(io.Reader); ok {
+		// A stream (an image archive for /images/load) is sent as is.
+		reader, contentType = stream, "application/x-tar"
+	} else if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
 			return nil, err
@@ -348,7 +352,7 @@ func (d *dockerAPI) request(ctx context.Context, method, endpoint string, body a
 		return nil, err
 	}
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 	}
 	return d.client.Do(req)
 }
@@ -387,8 +391,11 @@ func launchUpdateHelper(containerID, targetImage string) (string, error) {
 		return "", fmt.Errorf("inspect current container: %w", err)
 	}
 	var inspect struct {
-		Config map[string]any `json:"Config"`
-		Image  string         `json:"Image"`
+		Config     map[string]any `json:"Config"`
+		Image      string         `json:"Image"`
+		HostConfig struct {
+			DNS []string `json:"Dns"`
+		} `json:"HostConfig"`
 	}
 	if err := json.Unmarshal(inspectBytes, &inspect); err != nil {
 		return "", err
@@ -400,6 +407,12 @@ func launchUpdateHelper(containerID, targetImage string) (string, error) {
 		"Binds":         []string{dockerSocketPath + ":" + dockerSocketPath},
 		"RestartPolicy": map[string]any{"Name": "no"},
 		"AutoRemove":    false,
+	}
+	// The helper may have to download the image itself (see
+	// pullViaRegistry), so it uses the manager's DNS servers, which the
+	// Compose files set because the host's resolver can be unreliable.
+	if len(inspect.HostConfig.DNS) > 0 {
+		hostConfig["Dns"] = inspect.HostConfig.DNS
 	}
 	socketInfo, err := os.Stat(dockerSocketPath)
 	if err == nil {
@@ -465,14 +478,13 @@ func performContainerUpdate(ctx context.Context, containerID, targetImage string
 		return errors.New("invalid target image")
 	}
 	helperLog("Downloading " + targetImage + "…")
-	resp, err := d.request(ctx, http.MethodPost, "/images/create?fromImage="+url.QueryEscape(repo)+"&tag="+url.QueryEscape(tag), nil)
-	if err != nil {
-		return fmt.Errorf("pull release image: %w", err)
-	}
-	err = readPullProgress(resp)
-	resp.Body.Close()
-	if err != nil {
-		return err
+	if err := dockerPull(ctx, d, repo, tag); err != nil {
+		// Docker resolves the registry with the host's DNS, which can fail
+		// while this container's own DNS works; download it directly.
+		helperLog("Docker could not download the image (" + err.Error() + "); downloading it directly instead")
+		if err2 := pullViaRegistry(ctx, d, &http.Client{Timeout: 10 * time.Minute}, targetImage); err2 != nil {
+			return fmt.Errorf("pull release image: Docker: %v; direct download: %w. Docker downloads with the host's DNS; if the host cannot resolve ghcr.io, fix the host's DNS (with Tailscale, for example: tailscale set --accept-dns=false)", err, err2)
+		}
 	}
 	helperLog("Download complete")
 
@@ -563,6 +575,29 @@ func performContainerUpdate(ctx context.Context, containerID, targetImage string
 	_, _ = d.call(context.Background(), http.MethodDelete, "/containers/"+url.PathEscape(containerID)+"?force=true&v=true", nil, http.StatusNoContent)
 	helperLog("Update complete")
 	return nil
+}
+
+// dockerPull asks Docker to pull the image, trying twice since a lookup
+// failure can be momentary.
+func dockerPull(ctx context.Context, d *dockerAPI, repo, tag string) error {
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			time.Sleep(3 * time.Second)
+		}
+		var resp *http.Response
+		resp, err = d.request(ctx, http.MethodPost, "/images/create?fromImage="+url.QueryEscape(repo)+"&tag="+url.QueryEscape(tag), nil)
+		if err != nil {
+			err = fmt.Errorf("pull release image: %w", err)
+			continue
+		}
+		err = readPullProgress(resp)
+		resp.Body.Close()
+		if err == nil {
+			return nil
+		}
+	}
+	return err
 }
 
 // helperLog writes a progress line to the helper's output, which the
