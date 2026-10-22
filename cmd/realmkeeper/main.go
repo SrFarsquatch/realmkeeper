@@ -162,6 +162,7 @@ func (a *App) routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/minecraft/properties", a.auth(http.HandlerFunc(a.handleMinecraftPropertiesGet)))
 	mux.Handle("PUT /api/minecraft/properties", a.auth(http.HandlerFunc(a.handleMinecraftPropertiesPut)))
 	mux.Handle("POST /api/install/import-local", a.auth(http.HandlerFunc(a.handleImportLocal)))
+	mux.Handle("POST /api/hytale/patchline", a.auth(http.HandlerFunc(a.handleHytalePatchline)))
 
 	gameUpdates := func(c GameCapability) bool { return c.GameUpdates }
 	deviceAuth := func(c GameCapability) bool { return c.DeviceAuth }

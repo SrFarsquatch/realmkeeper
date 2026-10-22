@@ -85,6 +85,7 @@ type newServerRequest struct {
 	TerrariaVersion          string `json:"terrariaVersion"`
 	TerrariaWorldName        string `json:"terrariaWorldName"`
 	TerrariaWorldSize        string `json:"terrariaWorldSize"`
+	HytalePatchline          string `json:"hytalePatchline"`
 	// rememberedOwnerID is the saved Dragonwilds Owner ID, used when the
 	// request leaves the Owner ID empty. Set by the server, never decoded.
 	rememberedOwnerID string
@@ -184,6 +185,7 @@ func (a *App) handleServersCreate(w http.ResponseWriter, r *http.Request) {
 	s.TerrariaVersion = body.TerrariaVersion
 	s.TerrariaWorldName = body.TerrariaWorldName
 	s.TerrariaWorldSize = body.TerrariaWorldSize
+	s.HytalePatchline = body.HytalePatchline
 	s.GameMode = body.GameMode
 	s.MaxPlayers = body.MaxPlayers
 	s.MOTD = body.MOTD

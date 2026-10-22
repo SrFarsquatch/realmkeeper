@@ -139,9 +139,16 @@ func (HytaleAdapter) Rules() GameRules {
 	return GameRules{GameModes: hytaleGameModes, ModeLabel: "Game mode", DefaultMOTD: "Welcome to your Hytale server!", DefaultMaxPlayers: 20, PlayerLimit: 1000, JVMMemory: true, Whitelist: true}
 }
 
-func (HytaleAdapter) ValidateNew(*newServerRequest) error { return nil }
+func (HytaleAdapter) ValidateNew(req *newServerRequest) error {
+	patchline, err := normalizeHytalePatchline(req.HytalePatchline)
+	req.HytalePatchline = patchline
+	return err
+}
 
 func (HytaleAdapter) MergeSettings(in *ServerSettings, current ServerSettings) error {
+	// The release channel changes only through the switch endpoint, which
+	// takes a snapshot first.
+	in.HytalePatchline = current.HytalePatchline
 	keepMinecraftFields(in, current)
 	keepDragonwildsFields(in, current)
 	keepTerrariaFields(in, current)
