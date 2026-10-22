@@ -196,6 +196,11 @@
                   <button type="button" class="btn small" data-update="download">Download</button>
                   <button type="button" class="btn small danger-ghost" data-update="apply">Apply</button>
                 </div>
+                <div class="channel-row">
+                  <label>Release channel<select id="hytale-patchline"><option value="release">Release</option><option value="pre-release">Pre-release</option></select></label>
+                  <button type="button" class="btn small" id="hytale-patchline-switch" disabled>Switch channel</button>
+                </div>
+                <p class="muted small">Pre-release builds (such as world generation v2) can be unstable. Players switch their Hytale launcher to the same channel to join. A world opened on pre-release may not load on release again, so a snapshot is taken first when the server is stopped.</p>
               </section>
             </div>
 
@@ -526,6 +531,7 @@
           <label id="new-xms-row" class="hytale-only">Minimum memory<input id="new-server-xms" value="2G" required></label>
           <label id="new-xmx-row" class="hytale-only">Maximum memory<input id="new-server-xmx" value="4G" required></label>
           <label id="new-backup-row" class="hytale-only">Backup frequency (minutes)<input id="new-server-backup" type="number" min="5" max="10080" value="30" required></label>
+          <label id="new-patchline-row" class="hytale-only">Release channel<select id="new-hytale-patchline"><option value="release">Release</option><option value="pre-release">Pre-release</option></select><small>Pre-release has new features such as world generation v2 but can be unstable. Players need the same channel in their launcher.</small></label>
           <label class="toggle-row"><span><b>Auto-start</b><small>Start when the manager starts.</small></span><input id="new-server-autostart" type="checkbox"></label>
         </div>
         <div id="wizard-review" class="wizard-review"></div>

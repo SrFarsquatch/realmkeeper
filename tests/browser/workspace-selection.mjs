@@ -528,6 +528,25 @@ try {
     await call('DELETE', '/api/servers/' + copy.id);
   });
 
+  await check('a stopped Hytale server can switch to the pre-release channel', async () => {
+    await fetch(base + '/api/servers/alpha-hytale/stop', { method: 'POST', headers: { Cookie: cookie } }).catch(() => {});
+    await select('alpha-hytale');
+    await waitForName('Alpha Hytale');
+    await page.click('[data-view-tab="dashboard"]');
+    await page.waitForFunction(() => /Stopped|Offline/.test(document.querySelector('#top-status').textContent), null, { timeout: 8000 });
+    assert.ok(await page.isDisabled('#hytale-patchline-switch'), 'nothing to switch yet');
+    await page.selectOption('#hytale-patchline', 'pre-release');
+    page.once('dialog', d => d.accept());
+    await page.click('#hytale-patchline-switch');
+    await page.waitForFunction(() => document.querySelector('#hytale-patchline-switch').disabled, null, { timeout: 5000 });
+    const settings = await (await fetch(base + '/api/settings', { headers: { Cookie: cookie, 'X-HSM-Server': 'alpha-hytale' } })).json();
+    assert.equal(settings.hytalePatchline, 'pre-release');
+    const cfg = await (await fetch(base + '/api/files/content?path=' + encodeURIComponent('game/Server/config.json'), { headers: { Cookie: cookie, 'X-HSM-Server': 'alpha-hytale' } })).json();
+    assert.match(cfg.content, /"Patchline": "pre-release"/);
+    const backups = await (await fetch(base + '/api/backups', { headers: { Cookie: cookie, 'X-HSM-Server': 'alpha-hytale' } })).json();
+    assert.ok(backups.snapshots.length > 0, 'a snapshot was taken before switching');
+  });
+
   await check('the wizard applies each game\'s rules', async () => {
     await page.click('#add-server-side');
     await page.click('[data-game-choice="terraria"]');
@@ -541,6 +560,7 @@ try {
     assert.match(await text('#new-terraria-variant-help'), /\.NET/);
     assert.equal(await page.getAttribute('#new-terraria-version', 'placeholder'), 'latest or v2025.08.3.0');
     assert.ok(!(await visible('#new-whitelist-row')), 'no whitelist for Terraria');
+    assert.ok(!(await visible('#new-patchline-row')), 'no Hytale release channel for Terraria');
     await page.click('#wizard-next');
     assert.ok(!(await visible('#new-xms-row')) && !(await visible('#new-backup-row')), 'no JVM memory or Hytale backups for Terraria');
     await page.click('#wizard-back');

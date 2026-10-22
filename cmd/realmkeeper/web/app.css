@@ -337,6 +337,10 @@ input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); m
 .inline-fields { display: flex; gap: 8px; }
 .inline-fields input { flex: 1; min-width: 0; }
 .inline-fields select { width: auto; }
+.channel-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-top: 14px; }
+.channel-row label { display: grid; gap: 6px; color: var(--text-2); font-size: 12.5px; font-weight: 600; }
+.channel-row select { width: auto; }
+.update-card .muted.small { margin-top: 8px; }
 .inline-fields.wrap { flex-wrap: wrap; margin-top: 12px; }
 .inline-fields.wrap input { min-width: 180px; }
 #view-players .toggle-row { margin-bottom: 12px; }

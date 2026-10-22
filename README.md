@@ -12,7 +12,7 @@ Realmkeeper used to be called Hytale Server Manager (HSM); see [Upgrading from H
 - Live console and server commands
 - Hytale device authentication
 - Official Hytale downloader/import workflow
-- Hytale updater commands
+- Hytale updater commands, and a release channel per server (release or pre-release, for builds such as world generation v2). New servers download the chosen channel; switching an existing server takes a snapshot first when it is stopped, then the Game updates buttons move it to that channel's build. Players need the same channel in their Hytale launcher.
 - Native backups and full offline snapshots
 - `config.json`, `permissions.json`, `whitelist.json` and `bans.json`
 - Per-server JVM memory and autostart settings

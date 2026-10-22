@@ -26,16 +26,19 @@ type ServerSettings struct {
 	TerrariaVersion          string `json:"terrariaVersion,omitempty"`
 	TerrariaWorldName        string `json:"terrariaWorldName,omitempty"`
 	TerrariaWorldSize        string `json:"terrariaWorldSize,omitempty"`
-	ServerName               string `json:"serverName"`
-	Port                     int    `json:"port"`
-	GameMode                 string `json:"gameMode"`
-	MaxPlayers               int    `json:"maxPlayers"`
-	MOTD                     string `json:"motd"`
-	Password                 string `json:"password"`
-	WhitelistEnabled         bool   `json:"whitelistEnabled"`
-	MemoryMin                string `json:"memoryMin"`
-	MemoryMax                string `json:"memoryMax"`
-	AutoStart                bool   `json:"autoStart"`
+	// HytalePatchline is the Hytale release channel: "" for release, or
+	// "pre-release".
+	HytalePatchline  string `json:"hytalePatchline,omitempty"`
+	ServerName       string `json:"serverName"`
+	Port             int    `json:"port"`
+	GameMode         string `json:"gameMode"`
+	MaxPlayers       int    `json:"maxPlayers"`
+	MOTD             string `json:"motd"`
+	Password         string `json:"password"`
+	WhitelistEnabled bool   `json:"whitelistEnabled"`
+	MemoryMin        string `json:"memoryMin"`
+	MemoryMax        string `json:"memoryMax"`
+	AutoStart        bool   `json:"autoStart"`
 	// AutoRestart restarts the server after it crashes (see crash.go).
 	AutoRestart       bool   `json:"autoRestart"`
 	ExtraArgs         string `json:"extraArgs"`

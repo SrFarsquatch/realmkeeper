@@ -27,11 +27,19 @@ type updateHelperContainer struct {
 
 var exitedStatus = regexp.MustCompile(`^Exited \((-?\d+)\)`)
 
-// updateHelpersToRemove picks finished update-helper containers to delete.
-// Successful helpers are always removed. Of the failed ones only the newest
-// is kept, so its logs remain available for diagnosing a failed update.
-// Running helpers and unrelated containers are never selected.
-func updateHelpersToRemove(containers []updateHelperContainer) []string {
+// A helper gives up after 12 minutes, so one still running after an hour is
+// stuck. A failed helper is kept for a day so its log can be read.
+const (
+	stuckHelperAge  = time.Hour
+	failedHelperAge = 24 * time.Hour
+)
+
+// updateHelpersToRemove picks update-helper containers to delete.
+// Successful helpers are always removed, and so are helpers stuck running.
+// Of the failed ones only the newest is kept, for a day, so its logs remain
+// available for diagnosing a failed update. Recently started helpers and
+// unrelated containers are never selected.
+func updateHelpersToRemove(containers []updateHelperContainer, now time.Time) []string {
 	var remove []string
 	var failed []updateHelperContainer
 	for _, c := range containers {
@@ -42,7 +50,14 @@ func updateHelpersToRemove(containers []updateHelperContainer) []string {
 				break
 			}
 		}
-		if !isHelper || c.ID == "" || (c.State != "exited" && c.State != "dead" && c.State != "created") {
+		age := now.Sub(time.Unix(c.Created, 0))
+		if !isHelper || c.ID == "" {
+			continue
+		}
+		if c.State != "exited" && c.State != "dead" && c.State != "created" {
+			if age > stuckHelperAge {
+				remove = append(remove, c.ID)
+			}
 			continue
 		}
 		code := -1
@@ -57,11 +72,23 @@ func updateHelpersToRemove(containers []updateHelperContainer) []string {
 	}
 	sort.Slice(failed, func(i, j int) bool { return failed[i].Created > failed[j].Created })
 	for i, c := range failed {
-		if i > 0 {
+		if i > 0 || now.Sub(time.Unix(c.Created, 0)) > failedHelperAge {
 			remove = append(remove, c.ID)
 		}
 	}
 	return remove
+}
+
+// cleanupUpdateHelpersLoop removes leftover helpers at startup, again once
+// the helper that started this version has had time to exit, and then every
+// 15 minutes, so helpers do not pile up on the CasaOS dashboard.
+func cleanupUpdateHelpersLoop() {
+	cleanupUpdateHelpers()
+	time.Sleep(2 * time.Minute)
+	for {
+		cleanupUpdateHelpers()
+		time.Sleep(15 * time.Minute)
+	}
 }
 
 // cleanupUpdateHelpers removes leftover update-helper containers. CasaOS lists
@@ -84,8 +111,8 @@ func cleanupUpdateHelpers() {
 		log.Printf("update helper cleanup: decode container list: %v", err)
 		return
 	}
-	for _, id := range updateHelpersToRemove(containers) {
-		if _, err := d.call(ctx, http.MethodDelete, "/containers/"+url.PathEscape(id)+"?v=true", nil, http.StatusNoContent, http.StatusNotFound); err != nil {
+	for _, id := range updateHelpersToRemove(containers, time.Now()) {
+		if _, err := d.call(ctx, http.MethodDelete, "/containers/"+url.PathEscape(id)+"?v=true&force=true", nil, http.StatusNoContent, http.StatusNotFound); err != nil {
 			log.Printf("update helper cleanup: remove %s: %v", id, err)
 		}
 	}

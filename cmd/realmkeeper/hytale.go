@@ -243,6 +243,9 @@ func (a *App) applyHytaleConfig(s ServerSettings) error {
 			"PlayerStorage":           map[string]any{"Type": "Hytale"},
 			"AuthCredentialStore":     map[string]any{"Type": "Encrypted", "Path": "auth.enc"},
 		}
+		if s.HytalePatchline != "" {
+			cfg["Update"] = map[string]any{"Patchline": s.HytalePatchline}
+		}
 		out, err := json.MarshalIndent(cfg, "", "  ")
 		if err != nil {
 			return err
@@ -292,7 +295,10 @@ func patchHytaleConfig(b []byte, s ServerSettings) ([]byte, error) {
 	if defaults, err = setHytaleConfigValue(defaults, "GameMode", s.GameMode); err != nil {
 		return nil, err
 	}
-	return setJSONMemberRaw(out, "Defaults", defaults)
+	if out, err = setJSONMemberRaw(out, "Defaults", defaults); err != nil {
+		return nil, err
+	}
+	return patchHytalePatchline(out, s.HytalePatchline)
 }
 
 // setHytaleConfigValue sets a member unless it already holds that value, so

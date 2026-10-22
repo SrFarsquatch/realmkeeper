@@ -56,13 +56,7 @@ func main() {
 	go app.backupMaintenanceLoop()
 	go app.schedulerLoop()
 	go app.watchPublishedPorts()
-	// Remove finished self-update helper containers. The helper is usually
-	// still exiting when the new manager starts, so check again shortly after.
-	go func() {
-		cleanupUpdateHelpers()
-		time.Sleep(2 * time.Minute)
-		cleanupUpdateHelpers()
-	}()
+	go cleanupUpdateHelpersLoop()
 
 	mux := http.NewServeMux()
 	app.routes(mux)
@@ -168,6 +162,7 @@ func (a *App) routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/minecraft/properties", a.auth(http.HandlerFunc(a.handleMinecraftPropertiesGet)))
 	mux.Handle("PUT /api/minecraft/properties", a.auth(http.HandlerFunc(a.handleMinecraftPropertiesPut)))
 	mux.Handle("POST /api/install/import-local", a.auth(http.HandlerFunc(a.handleImportLocal)))
+	mux.Handle("POST /api/hytale/patchline", a.auth(http.HandlerFunc(a.handleHytalePatchline)))
 
 	gameUpdates := func(c GameCapability) bool { return c.GameUpdates }
 	deviceAuth := func(c GameCapability) bool { return c.DeviceAuth }

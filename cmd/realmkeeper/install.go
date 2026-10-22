@@ -96,7 +96,7 @@ func (a *App) handleDownloaderRun(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 409, "stop the server before installing server files")
 		return
 	}
-	if err := m.RunDownloader(); err != nil {
+	if err := m.RunDownloader(s.HytalePatchline); err != nil {
 		jsonError(w, 409, err.Error())
 		return
 	}
@@ -124,7 +124,9 @@ func (a *App) handleImportLocal(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, 202, map[string]any{"ok": true})
 }
 
-func (m *ServerManager) RunDownloader() error {
+// RunDownloader downloads the server files for a Hytale patchline ("" for
+// release) with the official downloader, then installs them.
+func (m *ServerManager) RunDownloader(patchline string) error {
 	m.mu.Lock()
 	if m.running {
 		m.mu.Unlock()
@@ -146,8 +148,13 @@ func (m *ServerManager) RunDownloader() error {
 		defer func() { m.mu.Lock(); m.installBusy = false; m.mu.Unlock() }()
 		bundle := filepath.Join(pathsFor(m.rootDir).Imports(), "game.zip")
 		_ = os.Remove(bundle)
+		args := []string{"-download-path", bundle}
+		if patchline != "" {
+			args = append(args, "-patchline", patchline)
+			m.appendLog("installer", "Downloading the "+patchline+" build.")
+		}
 		m.appendLog("installer", "Launching official Hytale Downloader. Complete the device authorization shown below.")
-		cmd := exec.Command(downloader, "-download-path", bundle)
+		cmd := exec.Command(downloader, args...)
 		cmd.Dir = m.toolsDir
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -163,8 +170,13 @@ func (m *ServerManager) RunDownloader() error {
 			m.appendLog("installer", "Downloader failed to start: "+err.Error())
 			return
 		}
-		go m.scanPipe(stdout, "installer")
-		go m.scanPipe(stderr, "installer")
+		// Read both pipes to the end before Wait, which closes them;
+		// otherwise the downloader's last lines can be lost.
+		done := make(chan struct{}, 2)
+		go func() { m.scanPipe(stdout, "installer"); done <- struct{}{} }()
+		go func() { m.scanPipe(stderr, "installer"); done <- struct{}{} }()
+		<-done
+		<-done
 		if err := cmd.Wait(); err != nil {
 			m.appendLog("installer", "Downloader exited with an error: "+err.Error())
 			return
