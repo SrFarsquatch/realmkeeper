@@ -206,6 +206,24 @@ type fabricVersion struct {
 // resolveFabric returns the server launcher URL for a Minecraft version with
 // the newest stable Fabric loader and installer.
 func resolveFabric(ctx context.Context, client *http.Client, want string) (mcVersion, downloadURL string, err error) {
+	return resolveFabricLoader(ctx, client, want, "")
+}
+
+// fabricLoaderFromURL reads the loader version back from a Fabric server
+// launcher URL (.../versions/loader/<game>/<loader>/<installer>/server/jar).
+func fabricLoaderFromURL(raw string) string {
+	_, rest, ok := strings.Cut(raw, "/versions/loader/")
+	parts := strings.Split(rest, "/")
+	if !ok || len(parts) < 2 {
+		return ""
+	}
+	v, _ := url.PathUnescape(parts[1])
+	return v
+}
+
+// resolveFabricLoader is resolveFabric with a given loader version when pin
+// is set, as a mod pack names one.
+func resolveFabricLoader(ctx context.Context, client *http.Client, want, pin string) (mcVersion, downloadURL string, err error) {
 	var games, loaders, installers []fabricVersion
 	for path, dst := range map[string]*[]fabricVersion{"/versions/game": &games, "/versions/loader": &loaders, "/versions/installer": &installers} {
 		if err := getJSON(ctx, client, fabricMetaURL+path, dst); err != nil {
@@ -233,6 +251,17 @@ func resolveFabric(ctx context.Context, client *http.Client, want string) (mcVer
 		}
 	}
 	loader, installer := firstStable(loaders), firstStable(installers)
+	if pin != "" {
+		loader = ""
+		for _, l := range loaders {
+			if l.Version == pin {
+				loader = pin
+			}
+		}
+		if loader == "" {
+			return "", "", fmt.Errorf("Fabric has no loader version %s", pin)
+		}
+	}
 	if game == "" || loader == "" || installer == "" {
 		return "", "", errors.New("Fabric metadata lists no stable game, loader or installer version")
 	}

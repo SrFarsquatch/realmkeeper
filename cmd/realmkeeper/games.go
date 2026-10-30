@@ -40,7 +40,13 @@ type GameCapability struct {
 	// operators and bans (Minecraft).
 	PlayerManagement bool `json:"playerManagement"`
 	// ModBrowser means mods or plugins can be installed from Modrinth.
-	ModBrowser  bool     `json:"modBrowser"`
+	ModBrowser bool `json:"modBrowser"`
+	// DataPacks means world data packs can be managed and installed from
+	// Modrinth (every Minecraft server).
+	DataPacks bool `json:"dataPacks,omitempty"`
+	// ModPacks means Modrinth mod packs can be installed (servers with a
+	// mod loader).
+	ModPacks    bool     `json:"modPacks,omitempty"`
 	DeviceAuth  bool     `json:"deviceAuth"`
 	GameUpdates bool     `json:"gameUpdates"`
 	Variants    []string `json:"variants"`
@@ -200,6 +206,9 @@ func serverCapabilities(s ServerSettings) GameCapability {
 	c.Mods, c.ModsKind = ok, f.Kind
 	_, c.ModBrowser = modrinthLoaders[s.MinecraftVariant]
 	c.ModBrowser = c.ModBrowser && ok && normalizeGameType(s.GameType) == "minecraft-java"
+	c.DataPacks = normalizeGameType(s.GameType) == "minecraft-java"
+	_, c.ModPacks = mrpackLoaderKeys[s.MinecraftVariant]
+	c.ModPacks = c.ModPacks && c.DataPacks
 	return c
 }
 

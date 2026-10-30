@@ -120,6 +120,7 @@ func keepMinecraftFields(in *ServerSettings, current ServerSettings) {
 	in.MinecraftEulaAccepted = current.MinecraftEulaAccepted
 	in.MinecraftVersion = current.MinecraftVersion
 	in.MinecraftVariant = current.MinecraftVariant
+	in.MinecraftModpack = current.MinecraftModpack
 }
 
 func keepDragonwildsFields(in *ServerSettings, current ServerSettings) {
