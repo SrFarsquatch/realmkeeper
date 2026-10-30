@@ -21,11 +21,13 @@ import (
 	"time"
 )
 
-// Modrinth mod browser for Minecraft servers with mods or plugins. Searches
-// are limited to the server's loader and Minecraft version, and to projects
-// that run on servers. Installed files are checked against Modrinth's
-// SHA-512, and required dependencies are installed with them. What came from
-// Modrinth is recorded in the game folder, so it travels with exports.
+// Modrinth browser for Minecraft servers: mods or plugins for servers with a
+// loader, and data packs for every Minecraft server (mod packs are in
+// modpack.go). Searches are limited to the server's loader and Minecraft
+// version, and to projects that run on servers. Installed files are checked
+// against Modrinth's SHA-512, and required dependencies are installed with
+// them. What came from Modrinth is recorded in the game folder, so it travels
+// with exports.
 
 var (
 	modrinthAPI = "https://api.modrinth.com/v2"
@@ -36,6 +38,7 @@ var (
 
 const (
 	modrinthTrackFile    = ".realmkeeper-mods.json"
+	datapackTrackFile    = ".realmkeeper-datapacks.json"
 	modrinthFileLimit    = 256 << 20
 	modrinthMaxInstalled = 16 // a mod and its dependencies, per install
 )
@@ -98,12 +101,22 @@ type modrinthInstall struct {
 // modrinthIDPattern accepts Modrinth IDs and project slugs.
 var modrinthIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
+// Kinds of Modrinth projects the browser installs.
+const (
+	modrinthKindMod      = "mod" // mods, or plugins on Paper
+	modrinthKindDatapack = "datapack"
+	modrinthKindModpack  = "modpack"
+)
+
 // modrinthTarget is what a server can run: its loaders and Minecraft version.
 type modrinthTarget struct {
+	Kind        string
 	Loaders     []string
 	GameVersion string // "" when the version is not known yet
-	Dir         string // the mods or plugins folder
+	Dir         string // the mods, plugins or data packs folder
+	Ext         string // the file type installed: .jar, or .zip for data packs
 	GameDir     string
+	TrackFile   string // records what was installed from Modrinth
 }
 
 func (a *App) modrinthTargetFor(s ServerSettings) (modrinthTarget, bool) {
@@ -113,13 +126,38 @@ func (a *App) modrinthTargetFor(s ServerSettings) (modrinthTarget, bool) {
 		return modrinthTarget{}, false
 	}
 	root := a.serverRoot(s)
-	t := modrinthTarget{Loaders: loaders, Dir: filepath.Join(root, folder.Dir), GameDir: pathsFor(root).Game()}
-	if info, ok := readMinecraftInstallInfo(t.GameDir); ok && info.Version != "" {
-		t.GameVersion = info.Version
-	} else if !isLatest(s.MinecraftVersion) {
-		t.GameVersion = s.MinecraftVersion
-	}
+	t := modrinthTarget{Kind: modrinthKindMod, Loaders: loaders, Dir: filepath.Join(root, folder.Dir), Ext: ".jar", GameDir: pathsFor(root).Game()}
+	t.TrackFile = filepath.Join(t.GameDir, modrinthTrackFile)
+	t.GameVersion = minecraftGameVersion(t.GameDir, s)
 	return t, true
+}
+
+// datapackTargetFor is the data packs folder of the server's world. Any
+// Minecraft server runs data packs; a pack added before the first start is
+// there when the world is created, which world generation packs need.
+func (a *App) datapackTargetFor(s ServerSettings) (modrinthTarget, bool) {
+	if normalizeGameType(s.GameType) != "minecraft-java" {
+		return modrinthTarget{}, false
+	}
+	game := pathsFor(a.serverRoot(s)).Game()
+	return modrinthTarget{
+		Kind: modrinthKindDatapack, Loaders: []string{"datapack"}, Ext: ".zip", GameDir: game,
+		Dir:         filepath.Join(game, minecraftLevelName(game), "datapacks"),
+		TrackFile:   filepath.Join(game, datapackTrackFile),
+		GameVersion: minecraftGameVersion(game, s),
+	}, true
+}
+
+// minecraftGameVersion is the installed Minecraft version, else the version
+// the server was created for, else "" (latest, not installed yet).
+func minecraftGameVersion(gameDir string, s ServerSettings) string {
+	if info, ok := readMinecraftInstallInfo(gameDir); ok && info.Version != "" {
+		return info.Version
+	}
+	if !isLatest(s.MinecraftVersion) {
+		return s.MinecraftVersion
+	}
+	return ""
 }
 
 func modrinthRequest(ctx context.Context, client *http.Client, method, path string, body any, out any) error {
@@ -161,25 +199,33 @@ func modrinthClient() *http.Client {
 }
 
 func readModrinthInstalls(gameDir string) map[string]modrinthInstall {
+	return readInstallRecords(filepath.Join(gameDir, modrinthTrackFile))
+}
+
+func writeModrinthInstalls(gameDir string, installs map[string]modrinthInstall) error {
+	return writeInstallRecords(filepath.Join(gameDir, modrinthTrackFile), installs)
+}
+
+func readInstallRecords(path string) map[string]modrinthInstall {
 	out := map[string]modrinthInstall{}
-	b, err := os.ReadFile(filepath.Join(gameDir, modrinthTrackFile))
+	b, err := os.ReadFile(path)
 	if err == nil {
 		_ = json.Unmarshal(b, &out)
 	}
 	return out
 }
 
-func writeModrinthInstalls(gameDir string, installs map[string]modrinthInstall) error {
+func writeInstallRecords(path string, installs map[string]modrinthInstall) error {
 	b, err := json.MarshalIndent(installs, "", "  ")
 	if err != nil {
 		return err
 	}
-	return atomicWrite(filepath.Join(gameDir, modrinthTrackFile), append(b, '\n'), 0o644)
+	return atomicWrite(path, append(b, '\n'), 0o644)
 }
 
 // currentModrinthInstalls drops records whose file has since been removed.
 func currentModrinthInstalls(t modrinthTarget) map[string]modrinthInstall {
-	installs := readModrinthInstalls(t.GameDir)
+	installs := readInstallRecords(t.TrackFile)
 	for id, inst := range installs {
 		if !fileExists(filepath.Join(t.Dir, inst.Filename)) {
 			delete(installs, id)
@@ -188,17 +234,42 @@ func currentModrinthInstalls(t modrinthTarget) map[string]modrinthInstall {
 	return installs
 }
 
-func (a *App) modrinthRequestServer(w http.ResponseWriter, r *http.Request) (*ServerManager, ServerSettings, modrinthTarget, bool) {
+// modrinthRequestServer resolves the request's server and what it installs:
+// kind is "mod" (the default), "datapack" or "modpack".
+func (a *App) modrinthRequestServer(w http.ResponseWriter, r *http.Request, kind string) (*ServerManager, ServerSettings, modrinthTarget, bool) {
 	m, s, err := a.requestServer(r)
 	if err != nil {
 		jsonError(w, 404, err.Error())
 		return nil, s, modrinthTarget{}, false
 	}
-	if !requireCapability(w, s, "The mod browser", func(c GameCapability) bool { return c.ModBrowser }) {
-		return nil, s, modrinthTarget{}, false
+	var t modrinthTarget
+	switch kind {
+	case "", modrinthKindMod:
+		if !requireCapability(w, s, "The mod browser", func(c GameCapability) bool { return c.ModBrowser }) {
+			return nil, s, t, false
+		}
+		t, _ = a.modrinthTargetFor(s)
+	case modrinthKindDatapack:
+		if !requireCapability(w, s, "Data packs", func(c GameCapability) bool { return c.DataPacks }) {
+			return nil, s, t, false
+		}
+		t, _ = a.datapackTargetFor(s)
+	case modrinthKindModpack:
+		if !requireCapability(w, s, "Mod packs", func(c GameCapability) bool { return c.ModPacks }) {
+			return nil, s, t, false
+		}
+		t, _ = a.modpackTargetFor(s)
+	default:
+		jsonError(w, 400, "kind must be mod, datapack or modpack")
+		return nil, s, t, false
 	}
-	t, _ := a.modrinthTargetFor(s)
 	return m, s, t, true
+}
+
+var modrinthProjectTypes = map[string][]string{
+	modrinthKindMod:      {"project_type:mod", "project_type:plugin"},
+	modrinthKindDatapack: {"project_type:datapack"},
+	modrinthKindModpack:  {"project_type:modpack"},
 }
 
 func modrinthFacets(t modrinthTarget) string {
@@ -208,7 +279,7 @@ func modrinthFacets(t modrinthTarget) string {
 	}
 	facets := [][]string{
 		loaders,
-		{"project_type:mod", "project_type:plugin"},
+		modrinthProjectTypes[t.Kind],
 		{"server_side:required", "server_side:optional", "server_side:unknown"},
 	}
 	if t.GameVersion != "" {
@@ -219,10 +290,15 @@ func modrinthFacets(t modrinthTarget) string {
 }
 
 func (a *App) handleModrinthSearch(w http.ResponseWriter, r *http.Request) {
-	_, _, t, ok := a.modrinthRequestServer(w, r)
+	_, _, t, ok := a.modrinthRequestServer(w, r, r.URL.Query().Get("kind"))
 	if !ok {
 		return
 	}
+	writeModrinthSearch(w, r, t)
+}
+
+// writeModrinthSearch searches Modrinth for projects that fit t.
+func writeModrinthSearch(w http.ResponseWriter, r *http.Request, t modrinthTarget) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if len(query) > 100 {
 		query = query[:100]
@@ -243,7 +319,15 @@ func (a *App) handleModrinthSearch(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 502, err.Error())
 		return
 	}
-	installs := currentModrinthInstalls(t)
+	installs := map[string]modrinthInstall{}
+	if t.TrackFile != "" {
+		installs = currentModrinthInstalls(t)
+	}
+	if t.Kind == modrinthKindModpack {
+		if p, ok := readModpackRecord(t.GameDir); ok {
+			installs[p.ProjectID] = modrinthInstall{}
+		}
+	}
 	type hit struct {
 		modrinthHit
 		Installed bool `json:"installed"`
@@ -289,10 +373,15 @@ func pickModrinthVersion(versions []modrinthVersion) (modrinthVersion, bool) {
 }
 
 func (a *App) handleModrinthVersions(w http.ResponseWriter, r *http.Request) {
-	_, _, t, ok := a.modrinthRequestServer(w, r)
+	_, _, t, ok := a.modrinthRequestServer(w, r, r.URL.Query().Get("kind"))
 	if !ok {
 		return
 	}
+	writeModrinthVersions(w, r, t)
+}
+
+// writeModrinthVersions lists a project's versions that fit t.
+func writeModrinthVersions(w http.ResponseWriter, r *http.Request, t modrinthTarget) {
 	project := r.PathValue("project")
 	if !modrinthIDPattern.MatchString(project) {
 		jsonError(w, 400, "invalid project")
@@ -304,20 +393,22 @@ func (a *App) handleModrinthVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type view struct {
-		ID            string `json:"id"`
-		Name          string `json:"name"`
-		VersionNumber string `json:"versionNumber"`
-		VersionType   string `json:"versionType"`
-		Published     string `json:"published"`
-		Size          int64  `json:"size"`
-		Dependencies  int    `json:"dependencies"`
+		ID            string   `json:"id"`
+		Name          string   `json:"name"`
+		VersionNumber string   `json:"versionNumber"`
+		VersionType   string   `json:"versionType"`
+		Published     string   `json:"published"`
+		Size          int64    `json:"size"`
+		Dependencies  int      `json:"dependencies"`
+		GameVersions  []string `json:"gameVersions"`
+		Loaders       []string `json:"loaders"`
 	}
 	out := []view{}
 	for _, v := range versions {
 		if len(out) == 15 {
 			break
 		}
-		f, ok := primaryModrinthFile(v)
+		f, ok := primaryModrinthFile(v, t.Ext)
 		if !ok {
 			continue
 		}
@@ -327,15 +418,17 @@ func (a *App) handleModrinthVersions(w http.ResponseWriter, r *http.Request) {
 				deps++
 			}
 		}
-		out = append(out, view{v.ID, v.Name, v.VersionNumber, v.VersionType, v.DatePublished, f.Size, deps})
+		out = append(out, view{v.ID, v.Name, v.VersionNumber, v.VersionType, v.DatePublished, f.Size, deps, v.GameVersions, v.Loaders})
 	}
 	jsonOut(w, 200, map[string]any{"versions": out, "gameVersion": t.GameVersion})
 }
 
-func primaryModrinthFile(v modrinthVersion) (modrinthFile, bool) {
+// primaryModrinthFile is the version's file of type ext (".jar", ".zip" or
+// ".mrpack"), preferring the one marked primary.
+func primaryModrinthFile(v modrinthVersion, ext string) (modrinthFile, bool) {
 	var found *modrinthFile
 	for i, f := range v.Files {
-		if strings.EqualFold(filepath.Ext(f.Filename), ".jar") && (found == nil || f.Primary) {
+		if strings.EqualFold(filepath.Ext(f.Filename), ext) && (found == nil || f.Primary) {
 			found = &v.Files[i]
 		}
 	}
@@ -345,60 +438,67 @@ func primaryModrinthFile(v modrinthVersion) (modrinthFile, bool) {
 	return *found, true
 }
 
-func validModFilename(name string) bool {
+func validModFilename(name, ext string) bool {
 	return name != "" && name == filepath.Base(name) && !strings.HasPrefix(name, ".") && len(name) <= 200 &&
-		strings.EqualFold(filepath.Ext(name), ".jar") && !strings.ContainsAny(name, "/\\\x00\r\n")
+		strings.EqualFold(filepath.Ext(name), ext) && !strings.ContainsAny(name, "/\\\x00\r\n")
 }
 
-// downloadModrinthFile downloads a version's jar into dir, checking its
-// SHA-512, and returns the file name and checksum.
-func downloadModrinthFile(ctx context.Context, client *http.Client, v modrinthVersion, dir string) (string, string, error) {
-	f, ok := primaryModrinthFile(v)
+// downloadModrinthFile downloads a version's file of type ext into dir,
+// checking its SHA-512, and returns the file name and checksum.
+func downloadModrinthFile(ctx context.Context, client *http.Client, v modrinthVersion, dir, ext string) (string, string, error) {
+	f, ok := primaryModrinthFile(v, ext)
 	if !ok {
-		return "", "", fmt.Errorf("%s has no .jar file", v.Name)
+		return "", "", fmt.Errorf("%s has no %s file", v.Name, ext)
 	}
 	want := strings.ToLower(f.Hashes["sha512"])
-	if !validModFilename(f.Filename) || !trustedModrinthDownload(f.URL) || len(want) != 128 {
+	if !validModFilename(f.Filename, ext) || !trustedModrinthDownload(f.URL) || len(want) != 128 {
 		return "", "", fmt.Errorf("%s has an unexpected download; not installed", v.Name)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.URL, nil)
-	if err != nil {
-		return "", "", err
-	}
-	req.Header.Set("User-Agent", appUserAgent())
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("download returned HTTP %d", resp.StatusCode)
-	}
-	tmp, err := os.CreateTemp(dir, ".download-*")
-	if err != nil {
-		return "", "", err
-	}
-	defer os.Remove(tmp.Name())
-	hash := sha512.New()
-	n, copyErr := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(resp.Body, modrinthFileLimit+1))
-	if err := tmp.Close(); copyErr == nil {
-		copyErr = err
-	}
-	switch {
-	case copyErr != nil:
-		return "", "", copyErr
-	case n > modrinthFileLimit:
-		return "", "", errors.New("the file is larger than the 256 MiB limit")
-	case hex.EncodeToString(hash.Sum(nil)) != want:
-		return "", "", errors.New("the downloaded file does not match Modrinth's SHA-512 checksum")
-	}
-	if err := os.Rename(tmp.Name(), filepath.Join(dir, f.Filename)); err != nil {
+	if err := downloadSHA512(ctx, client, f.URL, filepath.Join(dir, f.Filename), want, modrinthFileLimit); err != nil {
 		return "", "", err
 	}
 	return f.Filename, want, nil
 }
 
+// downloadSHA512 downloads rawURL to dst through a temporary file beside it,
+// and keeps it only when its SHA-512 is want and it fits in limit bytes.
+func downloadSHA512(ctx context.Context, client *http.Client, rawURL, dst, want string, limit int64) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", appUserAgent())
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download returned HTTP %d", resp.StatusCode)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".download-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	hash := sha512.New()
+	n, copyErr := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(resp.Body, limit+1))
+	if err := tmp.Close(); copyErr == nil {
+		copyErr = err
+	}
+	switch {
+	case copyErr != nil:
+		return copyErr
+	case n > limit:
+		return fmt.Errorf("the file is larger than the %d MiB limit", limit>>20)
+	case hex.EncodeToString(hash.Sum(nil)) != want:
+		return errors.New("the downloaded file does not match Modrinth's SHA-512 checksum")
+	}
+	return os.Rename(tmp.Name(), dst)
+}
+
 type modrinthInstallRequest struct {
+	Kind      string `json:"kind"` // "mod" (the default) or "datapack"
 	ProjectID string `json:"projectId"`
 	VersionID string `json:"versionId"`
 	// Replace is a file in the mods folder the new version replaces (an
@@ -470,13 +570,13 @@ func (a *App) installModrinth(ctx context.Context, m *ServerManager, t modrinthT
 		if err := modrinthRequest(ctx, client, http.MethodGet, "/project/"+url.PathEscape(v.ProjectID), nil, &project); err != nil {
 			project.Title = v.Name
 		}
-		name, sum, err := downloadModrinthFile(ctx, client, v, t.Dir)
+		name, sum, err := downloadModrinthFile(ctx, client, v, t.Dir, t.Ext)
 		if err != nil {
 			return installed, fmt.Errorf("%s: %w", project.Title, err)
 		}
 		// An update replaces the previous file of the same project.
 		previous := installs[v.ProjectID].Filename
-		if v.ProjectID == req.ProjectID && previous == "" && validModFilename(req.Replace) {
+		if v.ProjectID == req.ProjectID && previous == "" && validModFilename(req.Replace, t.Ext) {
 			previous = req.Replace
 		}
 		if previous != "" && previous != name {
@@ -497,7 +597,7 @@ func (a *App) installModrinth(ctx context.Context, m *ServerManager, t modrinthT
 				queue = append(queue, job{d.ProjectID, d.VersionID, true})
 			}
 		}
-		if err := writeModrinthInstalls(t.GameDir, installs); err != nil {
+		if err := writeInstallRecords(t.TrackFile, installs); err != nil {
 			return installed, err
 		}
 	}
@@ -527,16 +627,20 @@ func modrinthFits(v modrinthVersion, t modrinthTarget) bool {
 }
 
 func (a *App) handleModrinthInstall(w http.ResponseWriter, r *http.Request) {
-	m, _, t, ok := a.modrinthRequestServer(w, r)
-	if !ok {
-		return
-	}
 	var req modrinthInstallRequest
 	if err := decodeJSON(r, &req); err != nil {
 		jsonError(w, 400, err.Error())
 		return
 	}
-	if !modrinthIDPattern.MatchString(req.ProjectID) || (req.VersionID != "" && !modrinthIDPattern.MatchString(req.VersionID)) || (req.Replace != "" && !validModFilename(req.Replace)) {
+	if req.Kind == modrinthKindModpack {
+		jsonError(w, 400, "mod packs are installed with POST /api/modrinth/modpack")
+		return
+	}
+	m, _, t, ok := a.modrinthRequestServer(w, r, req.Kind)
+	if !ok {
+		return
+	}
+	if !modrinthIDPattern.MatchString(req.ProjectID) || (req.VersionID != "" && !modrinthIDPattern.MatchString(req.VersionID)) || (req.Replace != "" && !validModFilename(req.Replace, t.Ext)) {
 		jsonError(w, 400, "invalid project, version or file")
 		return
 	}
@@ -552,7 +656,9 @@ func (a *App) handleModrinthInstall(w http.ResponseWriter, r *http.Request) {
 	if n := len(installed) - 1; n > 0 {
 		message += fmt.Sprintf(" and %d required dependenc%s", n, map[bool]string{true: "y", false: "ies"}[n == 1])
 	}
-	if m.IsRunning() {
+	if m.IsRunning() && t.Kind == modrinthKindDatapack {
+		message += ". Run /reload in the console or restart the server to load it"
+	} else if m.IsRunning() {
 		message += ". Restart the server to load it"
 	}
 	jsonOut(w, 200, map[string]any{"installed": installed, "message": message})
@@ -562,7 +668,12 @@ func (a *App) handleModrinthInstall(w http.ResponseWriter, r *http.Request) {
 // mods folder, including ones that were uploaded rather than installed from
 // the browser, by their SHA-512.
 func (a *App) handleModrinthUpdates(w http.ResponseWriter, r *http.Request) {
-	_, _, t, ok := a.modrinthRequestServer(w, r)
+	kind := r.URL.Query().Get("kind")
+	if kind == modrinthKindModpack {
+		jsonError(w, 400, "mod pack updates are listed with the pack's versions")
+		return
+	}
+	_, _, t, ok := a.modrinthRequestServer(w, r, kind)
 	if !ok {
 		return
 	}
@@ -570,7 +681,7 @@ func (a *App) handleModrinthUpdates(w http.ResponseWriter, r *http.Request) {
 	byHash := map[string]string{}
 	hashes := []string{}
 	for _, e := range entries {
-		if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ".jar") || len(hashes) >= 500 {
+		if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), t.Ext) || len(hashes) >= 500 {
 			continue
 		}
 		f, err := os.Open(filepath.Join(t.Dir, e.Name()))
@@ -608,7 +719,7 @@ func (a *App) handleModrinthUpdates(w http.ResponseWriter, r *http.Request) {
 		installs := currentModrinthInstalls(t)
 		for hash, v := range latest {
 			file, ok := byHash[hash]
-			newest, hasFile := primaryModrinthFile(v)
+			newest, hasFile := primaryModrinthFile(v, t.Ext)
 			if !ok || !hasFile || strings.EqualFold(newest.Hashes["sha512"], hash) {
 				continue
 			}

@@ -62,7 +62,7 @@ func (MinecraftAdapter) MergeSettings(in *ServerSettings, current ServerSettings
 func (MinecraftAdapter) ApplySettings(*App, *ServerManager, ServerSettings) error { return nil }
 
 func (MinecraftAdapter) InstallStatus(app *App, s ServerSettings) map[string]any {
-	return map[string]any{"game": s.GameType, "version": s.MinecraftVersion, "variant": s.MinecraftVariant, "eulaAccepted": s.MinecraftEulaAccepted, "paths": map[string]string{"game": pathsFor(app.serverRoot(s)).Game()}}
+	return map[string]any{"game": s.GameType, "version": s.MinecraftVersion, "variant": s.MinecraftVariant, "modpack": s.MinecraftModpack, "eulaAccepted": s.MinecraftEulaAccepted, "paths": map[string]string{"game": pathsFor(app.serverRoot(s)).Game()}}
 }
 
 func (MinecraftAdapter) Installed(rootDir string) bool {
@@ -275,9 +275,15 @@ func (m *ServerManager) installMinecraft(version, variant string) error {
 	// install gets longer than any single download.
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
+	return m.installMinecraftPinned(ctx, version, variant, "")
+}
+
+// installMinecraftPinned installs a server, with the given loader build when
+// pin is set (Fabric, Quilt, Forge and NeoForge).
+func (m *ServerManager) installMinecraftPinned(ctx context.Context, version, variant, pin string) error {
 	client := &http.Client{Timeout: 8 * time.Minute}
 	if _, loader := minecraftLoaderHosts[variant]; loader {
-		return m.installMinecraftLoader(ctx, client, version, variant)
+		return m.installMinecraftLoader(ctx, client, version, variant, pin)
 	}
 	var resolvedVersion, downloadURL, sha string
 	var javaMajor int
@@ -286,7 +292,7 @@ func (m *ServerManager) installMinecraft(version, variant string) error {
 	case "paper":
 		resolvedVersion, downloadURL, sha, err = resolvePaper(ctx, client, version)
 	case "fabric":
-		resolvedVersion, downloadURL, err = resolveFabric(ctx, client, version)
+		resolvedVersion, downloadURL, err = resolveFabricLoader(ctx, client, version, pin)
 	default:
 		resolvedVersion, downloadURL, javaMajor, err = resolveMinecraftServerURL(ctx, client, version)
 	}
@@ -324,7 +330,11 @@ func (m *ServerManager) installMinecraft(version, variant string) error {
 	if err := os.WriteFile(filepath.Join(gameDir, "eula.txt"), []byte("# Accepted by the server owner in Realmkeeper. See https://aka.ms/MinecraftEULA.\neula=true\n"), 0600); err != nil {
 		return err
 	}
-	if err := writeMinecraftInstallInfo(gameDir, minecraftInstallInfo{Version: resolvedVersion, JavaMajor: javaMajor, Variant: variant}); err != nil {
+	info := minecraftInstallInfo{Version: resolvedVersion, JavaMajor: javaMajor, Variant: variant}
+	if variant == "fabric" {
+		info.LoaderVersion = fabricLoaderFromURL(downloadURL)
+	}
+	if err := writeMinecraftInstallInfo(gameDir, info); err != nil {
 		return err
 	}
 	if variant == "fabric" {
@@ -351,6 +361,20 @@ func (a *App) handleMinecraftInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	if m.IsRunning() {
 		jsonError(w, 409, "stop the server before installing or updating files")
+		return
+	}
+	if s.MinecraftModpack != nil {
+		if m.Installed() {
+			jsonError(w, 409, "Minecraft server files are already installed; update the pack from the Mods tab")
+			return
+		}
+		// The pack's index decides the loader and Minecraft version.
+		done := func(rec modpackRecord) { _ = a.setMinecraftServerType(s.ID, rec.Loader, rec.MinecraftVersion) }
+		if err := m.startModpackJob(s.MinecraftVariant, *s.MinecraftModpack, done); err != nil {
+			jsonError(w, 409, err.Error())
+			return
+		}
+		jsonOut(w, 202, map[string]any{"ok": true, "message": "Mod pack installation started; follow progress in Console"})
 		return
 	}
 	if err := m.RunMinecraftInstaller(s.MinecraftVersion, s.MinecraftVariant); err != nil {

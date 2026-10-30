@@ -59,33 +59,34 @@ func (a *App) handleServersList(w http.ResponseWriter, r *http.Request) {
 
 // newServerRequest is the body of POST /api/servers.
 type newServerRequest struct {
-	Game                     string `json:"game"`
-	DragonwildsOwnerID       string `json:"dragonwildsOwnerId"`
-	DragonwildsWorldName     string `json:"dragonwildsWorldName"`
-	DragonwildsAdminPassword string `json:"dragonwildsAdminPassword"`
-	DragonwildsWorldPassword string `json:"dragonwildsWorldPassword"`
-	DragonwildsPublic        bool   `json:"dragonwildsPublic"`
-	Name                     string `json:"name"`
-	Port                     int    `json:"port"`
-	GameMode                 string `json:"gameMode"`
-	MaxPlayers               int    `json:"maxPlayers"`
-	MOTD                     string `json:"motd"`
-	Password                 string `json:"password"`
-	WhitelistEnabled         bool   `json:"whitelistEnabled"`
-	PublicHost               string `json:"publicHost"`
-	MemoryMin                string `json:"memoryMin"`
-	MemoryMax                string `json:"memoryMax"`
-	BackupFrequency          int    `json:"backupFrequency"`
-	AutoStart                bool   `json:"autoStart"`
-	SourceServerID           string `json:"sourceServerId"`
-	MinecraftVersion         string `json:"minecraftVersion"`
-	MinecraftVariant         string `json:"minecraftVariant"`
-	MinecraftEulaAccepted    bool   `json:"minecraftEulaAccepted"`
-	TerrariaVariant          string `json:"terrariaVariant"`
-	TerrariaVersion          string `json:"terrariaVersion"`
-	TerrariaWorldName        string `json:"terrariaWorldName"`
-	TerrariaWorldSize        string `json:"terrariaWorldSize"`
-	HytalePatchline          string `json:"hytalePatchline"`
+	Game                     string      `json:"game"`
+	DragonwildsOwnerID       string      `json:"dragonwildsOwnerId"`
+	DragonwildsWorldName     string      `json:"dragonwildsWorldName"`
+	DragonwildsAdminPassword string      `json:"dragonwildsAdminPassword"`
+	DragonwildsWorldPassword string      `json:"dragonwildsWorldPassword"`
+	DragonwildsPublic        bool        `json:"dragonwildsPublic"`
+	Name                     string      `json:"name"`
+	Port                     int         `json:"port"`
+	GameMode                 string      `json:"gameMode"`
+	MaxPlayers               int         `json:"maxPlayers"`
+	MOTD                     string      `json:"motd"`
+	Password                 string      `json:"password"`
+	WhitelistEnabled         bool        `json:"whitelistEnabled"`
+	PublicHost               string      `json:"publicHost"`
+	MemoryMin                string      `json:"memoryMin"`
+	MemoryMax                string      `json:"memoryMax"`
+	BackupFrequency          int         `json:"backupFrequency"`
+	AutoStart                bool        `json:"autoStart"`
+	SourceServerID           string      `json:"sourceServerId"`
+	MinecraftVersion         string      `json:"minecraftVersion"`
+	MinecraftVariant         string      `json:"minecraftVariant"`
+	MinecraftEulaAccepted    bool        `json:"minecraftEulaAccepted"`
+	MinecraftModpack         *modpackRef `json:"minecraftModpack"`
+	TerrariaVariant          string      `json:"terrariaVariant"`
+	TerrariaVersion          string      `json:"terrariaVersion"`
+	TerrariaWorldName        string      `json:"terrariaWorldName"`
+	TerrariaWorldSize        string      `json:"terrariaWorldSize"`
+	HytalePatchline          string      `json:"hytalePatchline"`
 	// rememberedOwnerID is the saved Dragonwilds Owner ID, used when the
 	// request leaves the Owner ID empty. Set by the server, never decoded.
 	rememberedOwnerID string
@@ -105,6 +106,14 @@ func (a *App) handleServersCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.rememberedOwnerID = a.rememberedDragonwildsOwner()
+	if game == "minecraft-java" && body.MinecraftModpack != nil {
+		if err := resolveNewModpack(r.Context(), &body); err != nil {
+			jsonError(w, 400, err.Error())
+			return
+		}
+	} else {
+		body.MinecraftModpack = nil
+	}
 	if err := adapter.ValidateNew(&body); err != nil {
 		jsonError(w, 400, err.Error())
 		return
@@ -176,6 +185,7 @@ func (a *App) handleServersCreate(w http.ResponseWriter, r *http.Request) {
 	s.MinecraftVersion = body.MinecraftVersion
 	s.MinecraftVariant = body.MinecraftVariant
 	s.MinecraftEulaAccepted = body.MinecraftEulaAccepted
+	s.MinecraftModpack = body.MinecraftModpack
 	s.DragonwildsOwnerID = strings.TrimSpace(body.DragonwildsOwnerID)
 	s.DragonwildsWorldName = strings.TrimSpace(body.DragonwildsWorldName)
 	s.DragonwildsAdminPassword = body.DragonwildsAdminPassword

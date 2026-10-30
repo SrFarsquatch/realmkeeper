@@ -269,11 +269,20 @@
         </section>
 
         <section id="view-mods" class="view">
-          <section class="card"><div class="card-head"><div><h3 id="mods-title">Mods</h3><p class="muted small" id="mods-help">Installed for the selected server only.</p></div><label class="btn primary small file-btn"><svg class="icon"><use href="#i-plus"/></svg><span id="mods-add-label">Add mod</span><input type="file" id="mod-file" accept=".jar,.zip"></label></div><div id="mods-list" class="file-list empty-state">No mods installed.</div>
+          <section class="card" id="mods-card"><div class="card-head"><div><h3 id="mods-title">Mods</h3><p class="muted small" id="mods-help">Installed for the selected server only.</p></div><label class="btn primary small file-btn"><svg class="icon"><use href="#i-plus"/></svg><span id="mods-add-label">Add mod</span><input type="file" id="mod-file" accept=".jar,.zip"></label></div><div id="mods-list" class="file-list empty-state">No mods installed.</div>
             <div class="toolbar modrinth-only hidden"><button type="button" class="btn small" id="modrinth-updates">Check for updates</button></div>
             <div id="modrinth-updates-list" class="schedule-list"></div></section>
-          <section class="card modrinth-only hidden" id="modrinth-card">
-            <div class="card-head"><div><h3>Browse Modrinth</h3><p class="muted small" id="modrinth-help">Mods from modrinth.com for this server.</p></div></div>
+          <section class="card hidden" id="modpack-card">
+            <div class="card-head"><div><h3>Mod pack</h3><p class="muted small" id="modpack-help">A Modrinth mod pack installs its loader, mods and configs together.</p></div><div class="toolbar"><button type="button" class="btn small" id="modpack-check">Check for pack updates</button></div></div>
+            <div id="modpack-current" class="schedule-list"></div>
+          </section>
+          <section class="card hidden" id="datapacks-card">
+            <div class="card-head"><div><h3>Data packs</h3><p class="muted small" id="datapacks-help">Data packs in the world's datapacks folder. Run /reload in the console or restart the server to apply changes.</p></div><div class="toolbar"><button type="button" class="btn small" id="datapack-updates">Check for updates</button></div></div>
+            <div id="datapacks-list" class="file-list empty-state">No data packs installed.</div>
+            <div id="datapack-updates-list" class="schedule-list"></div>
+          </section>
+          <section class="card hidden" id="modrinth-card">
+            <div class="card-head"><div><h3>Browse Modrinth</h3><p class="muted small" id="modrinth-help">Mods from modrinth.com for this server.</p></div><div class="toolbar"><select id="modrinth-kind" aria-label="What to browse"></select></div></div>
             <form id="modrinth-search" class="inline-fields"><input id="modrinth-query" maxlength="100" placeholder="Search Modrinth" autocomplete="off"><button type="submit" class="btn">Search</button></form>
             <div id="modrinth-results" class="schedule-list"></div>
             <div class="toolbar"><button type="button" class="btn small hidden" id="modrinth-more">Show more</button></div>
@@ -496,8 +505,13 @@
             <h3>Minecraft Java</h3>
             <p class="muted small">Choose the server type and a release, or leave it on latest. The type cannot be changed after the server is created.</p>
             <div class="form-grid one">
-              <label>Server type<select id="new-minecraft-variant"><option value="vanilla">Vanilla (Mojang)</option><option value="paper">Paper (plugins)</option><option value="fabric">Fabric (mods)</option><option value="quilt">Quilt (mods)</option><option value="forge">Forge (mods)</option><option value="neoforge">NeoForge (mods)</option></select><small id="new-minecraft-variant-help">Mojang's official server, without plugins or mods.</small></label>
-              <label>Version<input id="new-minecraft-version" maxlength="32" value="latest" placeholder="latest or 1.21.11"></label>
+              <label>Server type<select id="new-minecraft-variant"><option value="vanilla">Vanilla (Mojang)</option><option value="paper">Paper (plugins)</option><option value="fabric">Fabric (mods)</option><option value="quilt">Quilt (mods)</option><option value="forge">Forge (mods)</option><option value="neoforge">NeoForge (mods)</option><option value="modpack">Modrinth mod pack</option></select><small id="new-minecraft-variant-help">Mojang's official server, without plugins or mods.</small></label>
+              <label id="new-minecraft-version-row">Version<input id="new-minecraft-version" maxlength="32" value="latest" placeholder="latest or 1.21.11"></label>
+              <div id="new-modpack-row" class="hidden stack">
+                <div class="inline-fields"><input id="new-modpack-query" maxlength="100" placeholder="Search Modrinth mod packs" autocomplete="off" aria-label="Search mod packs"><button type="button" class="btn" id="new-modpack-search">Search</button></div>
+                <div id="new-modpack-results" class="schedule-list"></div>
+                <label>Pack version<select id="new-modpack-version" disabled><option value="">Choose a pack above</option></select><small id="new-modpack-help">The pack sets the Minecraft version and loader. Install it from the Setup tab after the server is created.</small></label>
+              </div>
               <label class="toggle-row"><span><b>Accept Minecraft EULA</b><small>You must review and agree to the <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noreferrer">Minecraft EULA</a> to host this server.</small></span><input id="new-minecraft-eula" type="checkbox"></label>
             </div>
           </div>

@@ -646,6 +646,8 @@ input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); m
   .tab-bar { margin-left: -4px; margin-right: -4px; }
   .wizard-dialog form { padding: 20px 16px; }
 }
+.stack { display: grid; gap: 10px; }
+#new-modpack-results .mod-row.selected { outline: 2px solid var(--accent, currentColor); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }

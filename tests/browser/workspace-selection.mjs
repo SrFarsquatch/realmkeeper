@@ -151,12 +151,13 @@ try {
   });
   page.on('pageerror', e => pageErrors.push(e.message));
   // The browser never reaches the real Modrinth; checks fake what they need.
-  await page.route('**/api/modrinth/**', route => route.fulfill({ json: { hits: [], total: 0, offset: 0, gameVersion: '', loaders: [], updates: [], checked: 0 } }));
+  await page.route('**/api/modrinth/**', route => route.fulfill({ json: { hits: [], total: 0, offset: 0, gameVersion: '', loaders: [], updates: [], checked: 0, versions: [], pack: null } }));
+  await page.route('**/api/modpacks/**', route => route.fulfill({ json: { hits: [], total: 0, offset: 0, versions: [] } }));
   // Requests that reach the backend without naming a server would be ambiguous.
   const unscoped = [];
   page.on('request', req => {
     const url = new URL(req.url());
-    const serverScoped = /^\/api\/(status|players|resources|settings|server\/|console|logs|files|mods|backups|install\/(status|run-downloader|import-local|minecraft|dragonwilds|terraria)|auth|update|minecraft\/|modrinth\/)/.test(url.pathname);
+    const serverScoped = /^\/api\/(status|players|resources|settings|server\/|console|logs|files|mods|backups|install\/(status|run-downloader|import-local|minecraft|dragonwilds|terraria)|auth|update|minecraft\/|modrinth\/|datapacks)/.test(url.pathname);
     if (serverScoped && !req.headers()['x-hsm-server']) unscoped.push(req.method() + ' ' + url.pathname);
   });
 
@@ -191,7 +192,8 @@ try {
     assert.ok(await visible('.players-panel'), 'Hytale shows players');
     await select('bravo-minecraft');
     await waitForName('Bravo Minecraft');
-    assert.ok(!(await visible('[data-view-tab="mods"]')), 'Minecraft hides Mods');
+    assert.ok(await visible('[data-view-tab="mods"]'), 'vanilla Minecraft shows the Mods tab for data packs');
+    assert.equal(await text('#mods-tab-label'), 'Data packs');
     assert.ok(await visible('[data-view-tab="players"]'), 'Minecraft shows Players');
     assert.ok(await visible('[data-view-tab="backups"]'), 'Minecraft shows Backups (snapshots)');
     assert.ok(await visible('.players-panel'), 'Minecraft shows players');
@@ -418,7 +420,7 @@ try {
       await page.waitForFunction(() => /Paper/.test(document.querySelector('#minecraft-install').textContent), null, { timeout: 5000 });
       await select('bravo-minecraft');
       await waitForName('Bravo Minecraft');
-      assert.ok(!(await visible('[data-view-tab="mods"]')), 'vanilla Minecraft has no Mods tab');
+      assert.equal(await text('#mods-tab-label'), 'Data packs', 'vanilla Minecraft has data packs, not mods');
     } finally {
       await call('DELETE', '/api/servers/echo-paper').catch(() => {});
     }
@@ -439,7 +441,7 @@ try {
       let installBody = null;
       const isSearch = url => url.pathname === '/api/modrinth/search';
       await page.route(isSearch, route => route.fulfill({ json: { hits: [{ project_id: 'jei1', slug: 'jei', title: 'Just Enough Items', author: 'mezz', downloads: 123456, description: 'Item viewer', icon_url: '', installed: false }], total: 1, offset: 0, gameVersion: '', loaders: ['neoforge'] } }));
-      await page.route('**/api/modrinth/projects/jei1/versions', route => route.fulfill({ json: { versions: [{ id: 'v19', versionNumber: '19.0', versionType: 'release', published: '2026-09-01T00:00:00Z' }, { id: 'v20', versionNumber: '20.0', versionType: 'beta', published: '2026-09-20T00:00:00Z' }] } }));
+      await page.route('**/api/modrinth/projects/jei1/versions*', route => route.fulfill({ json: { versions: [{ id: 'v19', versionNumber: '19.0', versionType: 'release', published: '2026-09-01T00:00:00Z' }, { id: 'v20', versionNumber: '20.0', versionType: 'beta', published: '2026-09-20T00:00:00Z' }] } }));
       await page.route('**/api/modrinth/install', route => { installBody = route.request().postDataJSON(); route.fulfill({ json: { installed: [{ projectId: 'jei1', title: 'Just Enough Items', versionNumber: '19.0' }], message: 'Installed Just Enough Items 19.0' } }); });
       try {
         await page.click('[data-view-tab="mods"]');
@@ -452,14 +454,111 @@ try {
         await page.selectOption('#modrinth-results select', 'v19');
         await page.click('#modrinth-results [data-mr-install]');
         await page.waitForFunction(() => document.querySelector('#modrinth-results').textContent.includes('Installed'), null, { timeout: 5000 });
-        assert.deepEqual(installBody, { projectId: 'jei1', versionId: 'v19' });
+        assert.deepEqual(installBody, { kind: 'mod', projectId: 'jei1', versionId: 'v19' });
+        assert.deepEqual(await page.$$eval('#modrinth-kind option', o => o.map(x => x.value)), ['mod', 'datapack', 'modpack']);
+        assert.ok(await visible('#datapacks-card') && await visible('#modpack-card'), 'NeoForge shows data packs and the mod pack card');
       } finally {
         await page.unroute(isSearch);
-        await page.unroute('**/api/modrinth/projects/jei1/versions');
+        await page.unroute('**/api/modrinth/projects/jei1/versions*');
         await page.unroute('**/api/modrinth/install');
       }
     } finally {
       await call('DELETE', '/api/servers/golf-neoforge').catch(() => {});
+    }
+  });
+
+  await check('data packs on vanilla, and mod packs installed and updated on Fabric', async () => {
+    const searches = [];
+    const isSearch = url => url.pathname === '/api/modrinth/search';
+    await page.route(isSearch, route => {
+      const kind = new URL(route.request().url()).searchParams.get('kind');
+      searches.push(kind);
+      const hit = kind === 'modpack' ? { project_id: 'pack1', title: 'Sky Pack' } : { project_id: 'dp1', title: 'Terralith' };
+      route.fulfill({ json: { hits: [{ ...hit, slug: 'x', author: 'a', downloads: 10, description: '', icon_url: '', installed: false }], total: 1, offset: 0, gameVersion: '1.21.8', loaders: [kind === 'datapack' ? 'datapack' : 'fabric'] } });
+    });
+    let installBody = null, packBody = null;
+    await page.route('**/api/modrinth/install', route => { installBody = route.request().postDataJSON(); route.fulfill({ json: { installed: [{ projectId: 'dp1', title: 'Terralith', versionNumber: '2.0' }], message: 'Installed Terralith 2.0' } }); });
+    await page.route('**/api/modrinth/modpack', route => {
+      if (route.request().method() === 'POST') { packBody = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { ok: true, message: 'Mod pack installation started' } }); }
+      route.fulfill({ json: { busy: false, pack: { projectId: 'pack1', versionId: 'p1', versionNumber: '1.0', title: 'Sky Pack', loader: 'fabric', loaderVersion: '0.17.2', minecraftVersion: '1.21.8', files: ['mods/a.jar'] } } });
+    });
+    await page.route('**/api/modrinth/projects/pack1/versions*', route => route.fulfill({ json: { versions: [{ id: 'p2', versionNumber: '2.0', versionType: 'release', published: '2026-10-01T00:00:00Z' }, { id: 'p1', versionNumber: '1.0', versionType: 'release', published: '2026-09-01T00:00:00Z' }] } }));
+    await call('POST', '/api/servers', { game: 'minecraft-java', minecraftVariant: 'vanilla', minecraftVersion: 'latest', minecraftEulaAccepted: true, name: 'Hotel Vanilla', memoryMin: '1G', memoryMax: '2G' });
+    await call('POST', '/api/servers', { game: 'minecraft-java', minecraftVariant: 'fabric', minecraftVersion: 'latest', minecraftEulaAccepted: true, name: 'India Fabric', memoryMin: '1G', memoryMax: '2G' });
+    try {
+      await page.waitForSelector('[data-select-server="hotel-vanilla"]', { timeout: 10000 });
+      await select('hotel-vanilla');
+      await waitForName('Hotel Vanilla');
+      await page.click('[data-view-tab="mods"]');
+      await page.waitForFunction(() => document.querySelector('#modrinth-results').textContent.includes('Terralith'), null, { timeout: 5000 });
+      assert.ok(!(await visible('#mods-card')) && !(await visible('#modpack-card')), 'vanilla has no mods or mod packs');
+      assert.ok(await visible('#datapacks-card'), 'vanilla manages data packs');
+      assert.ok(!(await visible('#modrinth-kind')), 'one kind to browse needs no picker');
+      await page.waitForFunction(() => /world\/datapacks/.test(document.querySelector('#datapacks-help').textContent), null, { timeout: 5000 });
+      assert.equal(searches.at(-1), 'datapack');
+      await page.click('#modrinth-results [data-mr-install]');
+      await page.waitForFunction(() => document.querySelector('#modrinth-results').textContent.includes('Installed'), null, { timeout: 5000 });
+      assert.deepEqual(installBody, { kind: 'datapack', projectId: 'dp1', versionId: '' });
+
+      await select('india-fabric');
+      await waitForName('India Fabric');
+      await page.click('[data-view-tab="mods"]');
+      await page.waitForFunction(() => document.querySelector('#modpack-current').textContent.includes('Sky Pack'), null, { timeout: 5000 });
+      assert.match(await text('#modpack-current'), /Version 1\.0 · fabric 0\.17\.2 · Minecraft 1\.21\.8/);
+      await page.click('#modpack-check');
+      await page.waitForSelector('[data-pack-update="p2"]', { timeout: 5000 });
+      page.once('dialog', d => d.accept());
+      await page.click('[data-pack-update="p2"]');
+      await page.waitForFunction(() => document.querySelector('#toast').textContent.includes('Mod pack installation started'), null, { timeout: 5000 });
+      assert.deepEqual(packBody, { projectId: 'pack1', versionId: 'p2' });
+      await page.selectOption('#modrinth-kind', 'modpack');
+      await page.waitForFunction(() => document.querySelector('#modrinth-results').textContent.includes('Sky Pack'), null, { timeout: 5000 });
+      assert.equal(searches.at(-1), 'modpack');
+      assert.match(await text('#modrinth-results [data-mr-install]'), /pack/);
+    } finally {
+      await page.unroute(isSearch);
+      await page.unroute('**/api/modrinth/install');
+      await page.unroute('**/api/modrinth/modpack');
+      await page.unroute('**/api/modrinth/projects/pack1/versions*');
+      await call('DELETE', '/api/servers/hotel-vanilla').catch(() => {});
+      await call('DELETE', '/api/servers/india-fabric').catch(() => {});
+    }
+  });
+
+  await check('a server can be created from a Modrinth mod pack', async () => {
+    let created = null;
+    await page.route('**/api/modpacks/search*', route => route.fulfill({ json: { hits: [{ project_id: 'pack1', title: 'Sky Pack', author: 'a', downloads: 5000, description: 'Skyblock', icon_url: '' }], total: 1, offset: 0 } }));
+    await page.route('**/api/modpacks/pack1/versions', route => route.fulfill({ json: { versions: [{ id: 'p2', versionNumber: '2.0', versionType: 'release', gameVersions: ['1.21.1'], loaders: ['neoforge'] }] } }));
+    await page.route('**/api/servers', async route => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      created = route.request().postDataJSON();
+      route.fulfill({ status: 400, json: { error: 'stop here' } });
+    });
+    try {
+      await page.click('#add-server-side');
+      await page.click('[data-game-choice="minecraft-java"]');
+      await page.click('#wizard-next');
+      await page.click('#wizard-next');
+      await page.check('#new-minecraft-eula');
+      await page.selectOption('#new-minecraft-variant', 'modpack');
+      assert.ok(!(await visible('#new-minecraft-version-row')), 'the pack decides the version');
+      await page.waitForSelector('#new-modpack-results [data-use-pack]', { timeout: 5000 });
+      await page.click('#wizard-next');
+      assert.match(await text('#toast'), /Choose a mod pack/);
+      await page.click('#new-modpack-results [data-use-pack]');
+      await page.waitForFunction(() => !document.querySelector('#new-modpack-version').disabled, null, { timeout: 5000 });
+      assert.match(await text('#new-modpack-version'), /2\.0 · Minecraft 1\.21\.1 · neoforge/);
+      while (await visible('#wizard-next')) await page.click('#wizard-next');
+      assert.match(await text('#wizard-review'), /Sky Pack/);
+      await page.click('#wizard-create');
+      await page.waitForFunction(() => document.querySelector('#toast').textContent.includes('stop here'), null, { timeout: 5000 });
+      assert.deepEqual(created.minecraftModpack, { projectId: 'pack1', versionId: 'p2' });
+      assert.equal(created.minecraftVariant, '');
+      await page.click('#cancel-server-dialog');
+    } finally {
+      await page.unroute('**/api/modpacks/search*');
+      await page.unroute('**/api/modpacks/pack1/versions');
+      await page.unroute('**/api/servers');
     }
   });
 
@@ -570,7 +669,7 @@ try {
     await page.click('#wizard-next');
     await page.click('#wizard-next');
     assert.equal(await value('#new-server-mode'), 'Survival');
-    assert.deepEqual(await page.$$eval('#new-minecraft-variant option', o => o.map(x => x.value)), ['vanilla', 'paper', 'fabric', 'quilt', 'forge', 'neoforge']);
+    assert.deepEqual(await page.$$eval('#new-minecraft-variant option', o => o.map(x => x.value)), ['vanilla', 'paper', 'fabric', 'quilt', 'forge', 'neoforge', 'modpack']);
     await page.click('#wizard-back');
     await page.click('#wizard-back');
     await page.click('[data-game-choice="runescape-dragonwilds"]');

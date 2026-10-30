@@ -117,6 +117,34 @@ func resolveForge(ctx context.Context, client *http.Client, want string) (loader
 	}, nil
 }
 
+// pinnedForge is a given Forge build, as a mod pack names it.
+func pinnedForge(mc, forge string) (loaderInstall, error) {
+	if !safeVersionPart.MatchString(mc) || !safeVersionPart.MatchString(forge) {
+		return loaderInstall{}, errors.New("invalid Forge version")
+	}
+	if strings.HasPrefix(mc, "1.") && compareDotted(mc, "1.17") < 0 {
+		return loaderInstall{}, fmt.Errorf("Forge for Minecraft %s needs Java 8, which this image does not include", mc)
+	}
+	full := mc + "-" + forge
+	return loaderInstall{
+		MinecraftVersion: mc, LoaderVersion: forge,
+		InstallerURL: forgeMavenURL + "/" + full + "/forge-" + full + "-installer.jar",
+		ArgsFile:     "libraries/net/minecraftforge/forge/" + full + "/unix_args.txt",
+	}, nil
+}
+
+// pinnedNeoForge is a given NeoForge build.
+func pinnedNeoForge(neo string) (loaderInstall, error) {
+	if !safeVersionPart.MatchString(neo) || neoforgeMinecraftVersion(neo) == "" {
+		return loaderInstall{}, errors.New("invalid NeoForge version")
+	}
+	return loaderInstall{
+		MinecraftVersion: neoforgeMinecraftVersion(neo), LoaderVersion: neo,
+		InstallerURL: neoforgeMavenURL + "/" + neo + "/neoforge-" + neo + "-installer.jar",
+		ArgsFile:     "libraries/net/neoforged/neoforge/" + neo + "/unix_args.txt",
+	}, nil
+}
+
 // NeoForge versions encode the Minecraft version: 21.1.x is Minecraft 1.21.1
 // and 21.0.x is 1.21.
 func neoforgePrefix(mc string) (string, error) {
@@ -269,18 +297,27 @@ func (m *ServerManager) runJavaInstaller(ctx context.Context, dir string, args .
 	return nil
 }
 
-// installMinecraftLoader installs Forge, NeoForge or Quilt.
-func (m *ServerManager) installMinecraftLoader(ctx context.Context, mojang *http.Client, version, variant string) error {
+// installMinecraftLoader installs Forge, NeoForge or Quilt: the given loader
+// build when pin is set (a mod pack names one), else the recommended or
+// newest stable build.
+func (m *ServerManager) installMinecraftLoader(ctx context.Context, mojang *http.Client, version, variant, pin string) error {
 	client := loaderClient(mojang, minecraftLoaderHosts[variant])
 	var li loaderInstall
 	var err error
-	switch variant {
-	case "forge":
+	switch {
+	case variant == "forge" && pin != "":
+		li, err = pinnedForge(version, pin)
+	case variant == "forge":
 		li, err = resolveForge(ctx, client, version)
-	case "neoforge":
+	case variant == "neoforge" && pin != "":
+		li, err = pinnedNeoForge(pin)
+	case variant == "neoforge":
 		li, err = resolveNeoForge(ctx, client, version)
-	case "quilt":
-		li = loaderInstall{MinecraftVersion: version, InstallerURL: quiltInstallerURL}
+	case variant == "quilt":
+		if pin != "" && !safeVersionPart.MatchString(pin) {
+			return errors.New("invalid Quilt loader version")
+		}
+		li = loaderInstall{MinecraftVersion: version, LoaderVersion: pin, InstallerURL: quiltInstallerURL}
 	}
 	if err != nil {
 		return err
@@ -327,7 +364,11 @@ func (m *ServerManager) installMinecraftLoader(ctx context.Context, mojang *http
 	m.appendLog("installer", "Running the "+name+" installer. It downloads Minecraft and the loader's libraries, which can take a few minutes…")
 
 	if variant == "quilt" {
-		if err := m.runJavaInstaller(ctx, work, "-jar", installer, "install", "server", li.MinecraftVersion, "--download-server"); err != nil {
+		args := []string{"-jar", installer, "install", "server", li.MinecraftVersion}
+		if li.LoaderVersion != "" {
+			args = append(args, li.LoaderVersion)
+		}
+		if err := m.runJavaInstaller(ctx, work, append(args, "--download-server")...); err != nil {
 			return err
 		}
 		out := filepath.Join(work, "server")

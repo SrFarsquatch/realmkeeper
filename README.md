@@ -20,7 +20,7 @@ Realmkeeper used to be called Hytale Server Manager (HSM); see [Upgrading from H
 
 ### Other games
 
-- **Minecraft Java (vanilla, Paper, Fabric, Quilt, Forge or NeoForge):**
+- **Minecraft Java (vanilla, Paper, Fabric, Quilt, Forge, NeoForge, or a Modrinth mod pack):**
   - choose the server type when creating the server:
     - **Vanilla:** Mojang's official server.
     - **Paper:** the newest stable PaperMC build, checked against its published SHA-256. Plugins (`.jar`) go in `plugins/`, managed from the Plugins tab.
@@ -28,16 +28,25 @@ Realmkeeper used to be called Hytale Server Manager (HSM); see [Upgrading from H
     - **Quilt:** installed with Quilt's own installer for the chosen Minecraft release. Mods go in `mods/`; Quilt runs most Fabric mods (add Quilted Fabric API).
     - **Forge:** the recommended Forge build for the Minecraft version, or the latest build when none is recommended. Minecraft 1.17 or newer: older Forge needs Java 8, which the image does not include.
     - **NeoForge:** the newest stable NeoForge build for the Minecraft version (1.20.2 or newer; NeoForge for 1.20.1 is published as Forge).
+    - **Modrinth mod pack:** search Modrinth's mod packs in the wizard and pick a version. The pack sets the loader and Minecraft version; **Install** in the Setup tab installs the exact loader build the pack names, then its server files and overrides (see mod packs below).
     - Forge, NeoForge and Quilt are installed by running the loader's installer, which downloads Minecraft and the loader's libraries. Installers come only from the loader's own HTTPS site, checked against the published SHA-256 when there is one. Forge and NeoForge start from the `unix_args.txt` their installer writes.
   - a Modrinth browser in the Mods (or Plugins) tab for Paper, Fabric, Quilt, Forge and NeoForge servers:
     - search shows only projects for the server's loader and Minecraft version that run on servers
     - **Install** picks the newest compatible release (or choose a version) and installs its required dependencies too; files are checked against Modrinth's SHA-512
     - **Check for updates** looks up every jar in the folder by its hash, including ones uploaded by hand, and offers newer compatible versions
     - what came from Modrinth is recorded in `game/.realmkeeper-mods.json`, so it travels with exports
+  - **data packs** on every Minecraft server, vanilla included, in the Mods tab (called Data packs on vanilla):
+    - they go in the world's `datapacks/` folder (the world named by `level-name`); a pack added before the first start is there when the world is created, which world generation packs need
+    - browse and install them from Modrinth, check them for updates, or remove them (`.zip` files and unpacked folders); run `/reload` or restart the server to apply changes
+  - **mod packs** (`.mrpack`) from Modrinth on Fabric, Quilt, Forge and NeoForge servers:
+    - create a server from a pack, or install or update one from the Mods tab (Browse Modrinth → Mod packs, or **Check for pack updates** on the Mod pack card). The server must be stopped, and an installed server is snapshotted first.
+    - the pack's own index decides the Minecraft version and loader build; an installed server must already run that Minecraft version and loader, and its loader is reinstalled when the pack names another build
+    - every server file is downloaded only from the hosts the `.mrpack` format allows (Modrinth's CDN, GitHub, GitLab) and checked against its SHA-512; client-only files are skipped; `overrides/` and then `server-overrides/` are copied in. Everything is downloaded and checked before the server folder is touched, so a failed download changes nothing.
+    - an update removes the files the previous version installed that the new one no longer has. Mods you added yourself are kept; configs are kept unless the new version overrides them. The installed pack is recorded in `game/.realmkeeper-modpack.json`.
   - EULA acceptance required
   - console and player list (`list`)
   - a Players tab for the whitelist, operators and bans, with kick, ban and make-operator buttons for online players. A running server is changed through its console; a stopped server's `whitelist.json`, `ops.json`, `banned-players.json` and `banned-ips.json` are edited directly, with names checked against Mojang's account lookup.
-  - full snapshots, including while the server is running (autosave is paused for the copy); snapshots also include `plugins/`, `mods/` and `config/`
+  - full snapshots, including while the server is running (autosave is paused for the copy); snapshots also include `plugins/`, `mods/`, `config/`, `defaultconfigs/` and the Modrinth records
   - a game rules form for common `server.properties` settings
   - a Java version check before start
 - **Terraria (vanilla or tModLoader):**

@@ -22,10 +22,13 @@ type ServerSettings struct {
 	MinecraftVersion         string `json:"minecraftVersion,omitempty"`
 	MinecraftVariant         string `json:"minecraftVariant,omitempty"`
 	MinecraftEulaAccepted    bool   `json:"minecraftEulaAccepted,omitempty"`
-	TerrariaVariant          string `json:"terrariaVariant,omitempty"`
-	TerrariaVersion          string `json:"terrariaVersion,omitempty"`
-	TerrariaWorldName        string `json:"terrariaWorldName,omitempty"`
-	TerrariaWorldSize        string `json:"terrariaWorldSize,omitempty"`
+	// MinecraftModpack is the Modrinth pack the server was created from; the
+	// installer installs it with its loader.
+	MinecraftModpack  *modpackRef `json:"minecraftModpack,omitempty"`
+	TerrariaVariant   string      `json:"terrariaVariant,omitempty"`
+	TerrariaVersion   string      `json:"terrariaVersion,omitempty"`
+	TerrariaWorldName string      `json:"terrariaWorldName,omitempty"`
+	TerrariaWorldSize string      `json:"terrariaWorldSize,omitempty"`
 	// HytalePatchline is the Hytale release channel: "" for release, or
 	// "pre-release".
 	HytalePatchline  string `json:"hytalePatchline,omitempty"`

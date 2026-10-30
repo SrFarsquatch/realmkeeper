@@ -35,6 +35,8 @@ func snapshotSpecFor(root string, s ServerSettings) (snapshotSpec, bool) {
 			"server.properties", "whitelist.json", "ops.json", "banned-players.json", "banned-ips.json",
 			// Paper plugins and their data, Paper settings, Fabric mods and configs.
 			"plugins", "bukkit.yml", "spigot.yml", "mods", "config",
+			// Forge's default configs, and what was installed from Modrinth.
+			"defaultconfigs", modrinthTrackFile, datapackTrackFile, modpackTrackFile,
 		}}, true
 	case "runescape-dragonwilds":
 		// Saves and the game's config; guides spell the save folder both ways.

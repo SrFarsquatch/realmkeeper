@@ -45,7 +45,8 @@ jobs:
   browser:
     # Drives the real binary in Chromium: server switching, stale responses,
     # console streaming, capability-gated tabs, mobile drawer and secrets.
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 cannot install Chromium on the newer ubuntu-latest image.
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out source
         uses: actions/checkout@v4
